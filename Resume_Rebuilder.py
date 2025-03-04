@@ -58,11 +58,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-def convert_to_document(
-    content, output_format=OutputFormat.PDF, template_path="./resumeTemplate.docx"
-):
+
+def convert_to_document(content, output_format=OutputFormat.PDF, template_path=None):
     """Convert text content to PDF or DOCX using Adobe PDF Services API"""
     try:
+        print(
+            "------------------------this is the template path----------", template_path
+        )
+        # Use default template if none provided
+        if template_path is None:
+            template_path = "./resumeTemplate.docx"
         # Check if content is already a dictionary (JSON object)
         if isinstance(content, dict):
             # Format the data to match the template structure
@@ -76,7 +81,9 @@ def convert_to_document(
                 "summary": content.get("summary", ""),
                 "skills": format_skills(content.get("skills", [])),
                 "experience": format_experience(content.get("experience", [])),
-                "education": format_education(content.get("education", [])),
+                "education": format_education(
+                    content.get("education", []), template_path
+                ),
             }
             # Format contact info to avoid empty separators
             formatted_data = format_contact_info(formatted_data)
@@ -107,7 +114,11 @@ def convert_to_document(
                 resume_data = {"user": sections}
 
         # Debug output to check the data structure
-        logging.info(f"Template data: {json.dumps(resume_data, indent=2)}")
+        # Additional debug for experience data specifically
+        if "user" in resume_data and "education" in resume_data["user"]:
+            logging.info(
+                f"Experience data structure: {json.dumps(resume_data['user']['education'], indent=2)}"
+            )
 
         # Initial setup, create credentials instance
         credentials = ServicePrincipalCredentials(
@@ -127,6 +138,9 @@ def convert_to_document(
             input_stream=input_stream, mime_type=PDFServicesMediaType.DOCX
         )
 
+        print(
+            "--------This is the final resume data for convet2DOC---------", resume_data
+        )
         # Create parameters for the job
         document_merge_params = DocumentMergeParams(
             json_data_for_merge=resume_data, output_format=output_format
@@ -379,50 +393,115 @@ def format_skills(skills):
 
 
 def format_experience(experience):
-    """Format experience list into a string with proper HTML styling"""
+    """Format experience data to match the template structure"""
     if not isinstance(experience, list):
+        # If it's already a string, return it as is
         return experience if experience else ""
 
-    formatted = []
+    formatted_experience = []
+
     for exp in experience:
         if isinstance(exp, dict):
-            job = []
-            # Use more aggressive CSS styling with left alignment and negative margins if needed
-            company_info = f"<div style=\"margin: 0 !important; padding: 0 !important; text-indent: 0 !important; display: block; width: 100%; position: relative; left: 0 !important; text-align: left !important;\"><span style=\"font-weight: bold; margin-left: 0 !important;\">{exp.get('company', '').strip()}</span>"
+            # Create a new dictionary with the expected structure
+            formatted_exp = {
+                "company": exp.get("company", ""),
+                "role": exp.get("role", ""),
+                "location": exp.get("location", ""),
+                "period": exp.get("period", ""),
+                "responsibilities": [],
+            }
 
-            if exp.get("role"):
-                company_info += f" | <span style=\"font-weight: bold; font-style: italic\">{exp.get('role', '').strip()}</span>"
-
-            if exp.get("location"):
-                company_info += f" | {exp.get('location', '').strip()}"
-
-            if exp.get("period"):
-                company_info += f" | {exp.get('period', '').strip()}"
-
-            company_info += "</div>"  # Close the div tag
-
-            job.append(company_info)
-
+            # Handle responsibilities
             responsibilities = exp.get("responsibilities", [])
             if responsibilities:
                 if isinstance(responsibilities, list):
-                    for resp in responsibilities:
-                        job.append(
-                            f'<div style="margin: 0 !important; padding: 0 !important; text-indent: 0 !important; display: block; width: 100%; position: relative; left: 0 !important; text-align: left !important;">• {resp.strip()}</div>'
-                        )
+                    # Convert each string to an object with an "item" property
+                    formatted_exp["responsibilities"] = [
+                        {"item": resp} for resp in responsibilities
+                    ]
                 else:
-                    job.append(
-                        f'<div style="margin: 0 !important; padding: 0 !important; text-indent: 0 !important; display: block; width: 100%; position: relative; left: 0 !important; text-align: left !important;">• {responsibilities.strip()}</div>'
-                    )
+                    # Convert string to list by splitting on newlines or bullet points
+                    if isinstance(responsibilities, str):
+                        # Split by newlines and/or bullet points
+                        resp_items = []
+                        for line in responsibilities.split("\n"):
+                            line = line.strip()
+                            if line:
+                                # Remove bullet points if they exist
+                                if (
+                                    line.startswith("•")
+                                    or line.startswith("-")
+                                    or line.startswith("*")
+                                ):
+                                    line = line[1:].strip()
+                                resp_items.append({"item": line})
+                        formatted_exp["responsibilities"] = resp_items
+                    else:
+                        # Fallback for unexpected types
+                        formatted_exp["responsibilities"] = [
+                            {"item": str(responsibilities)}
+                        ]
 
-            formatted.append("<br/>".join(job))
+            formatted_experience.append(formatted_exp)
 
-    # Add more line breaks between company entries for better separation
-    return "<br/><br/>\n\n".join(formatted)
+    # Log the formatted experience for debugging
+    logging.info(f"Formatted experience: {json.dumps(formatted_experience, indent=2)}")
+
+    return formatted_experience
 
 
-def format_education(education):
-    """Format education list into a string"""
+def format_education(education, template_path=None):
+    """Format education list into appropriate structure based on template"""
+    if not isinstance(education, list):
+        return education if education else ""
+
+    # Use template-specific formatting if it's resumeTemplate1.docx
+    if template_path and "resumeTemplate1.docx" in template_path:
+        return format_education_template1(education)
+    else:
+        return format_education_classic(education)
+
+
+def format_education_template1(education):
+    """Format education for resumeTemplate1.docx structure"""
+    if not isinstance(education, list):
+        return education if education else ""
+
+    formatted_education = []
+
+    for edu in education:
+        if isinstance(edu, dict):
+            formatted_edu = {
+                # Create dictionary without 'university' prefix to match template
+                "institution": edu.get("institution", ""),
+                "field": edu.get("field", ""),
+                "degree": edu.get("degree", ""),
+                "location": edu.get("location", ""),
+                "gpa": edu.get("gpa", ""),
+                "period": "",  # Will format period from various possible inputs
+            }
+
+            # Handle period formatting
+            if edu.get("yearStart") and edu.get("yearEnd"):
+                formatted_edu["period"] = (
+                    f"{edu.get('yearStart')} - {edu.get('yearEnd')}"
+                )
+            elif edu.get("yearEnd"):
+                formatted_edu["period"] = str(edu.get("yearEnd"))
+            elif edu.get("year"):
+                formatted_edu["period"] = str(edu.get("year"))
+
+            # Add comma before degree if field exists
+            if formatted_edu["field"] and formatted_edu["degree"]:
+                formatted_edu["degree"] = f", {formatted_edu['degree']}"
+
+            formatted_education.append(formatted_edu)
+
+    return formatted_education
+
+
+def format_education_classic(education):
+    """Format education list into HTML string for classic template"""
     if not isinstance(education, list):
         return education if education else ""
 
@@ -433,6 +512,10 @@ def format_education(education):
 
             # Add styling similar to experience section
             institution_info = f"<div style=\"margin-left: 0 !important; padding: 0; text-indent: 0; display: block; width: 100%;\"><span style=\"font-weight: bold\">{edu.get('institution', '')}</span>"
+
+            # Add location if present
+            if edu.get("location"):
+                institution_info += f", {edu.get('location')}"
 
             # Build degree info
             degree_info = ""
@@ -449,10 +532,8 @@ def format_education(education):
             if edu.get("yearStart") and edu.get("yearEnd"):
                 year_info = f"{edu.get('yearStart')} - {edu.get('yearEnd')}"
             elif edu.get("yearEnd"):
-                # Handle case where only yearEnd is provided
                 year_info = f"{edu.get('yearEnd')}"
             elif edu.get("yearStart"):
-                # Handle case where only yearStart is provided
                 year_info = f"{edu.get('yearStart')}"
             elif edu.get("year"):
                 year_info = edu.get("year")
@@ -489,7 +570,6 @@ def format_education(education):
 
             formatted.append("<br/>".join(edu_line))
 
-    # Add more line breaks between education entries for better separation
     return "<br/><br/>\n\n".join(formatted)
 
 
@@ -600,6 +680,27 @@ def main():
     if "stored_resume_json" not in st.session_state:
         st.session_state.stored_resume_json = None
 
+    # # Template Selection
+    # st.header("Select Resume Template")
+    # template_options = {
+    #     "Classic Template": "./resumeTemplate.docx",
+    #     "Professional Template": "./resumeTemplate1.docx",
+    #     "Creative Template": "./resumeTemplate2.docx",
+    # }
+
+    # # Create columns for template selection
+    # col1, col2 = st.columns([2, 1])
+
+    # with col1:
+    #     selected_template = st.radio(
+    #         "Choose a template style:",
+    #         options=list(template_options.keys()),
+    #         index=0,
+    #         horizontal=True,
+    #     )
+
+    # # Update template path based on selection
+    # st.session_state.template_path = template_options[selected_template]
     # Job Description
     job_description = st.text_area(
         "Job Description", placeholder="Paste the job description here", height=200
@@ -721,18 +822,22 @@ def main():
                     ):
                         resume_json = st.session_state.result["resumeJson"]
 
-                        print('111111111111111111111111111111111222222222222222222---------------------11111111111111111111111', resume_json)
+                        print(
+                            "111111111111111111111111111111111222222222222222222---------------------11111111111111111111111",
+                            resume_json,
+                        )
                         # Store the resume_json in session state to prevent it from being lost
-                        if resume_json and not hasattr(st.session_state, 'stored_resume_json'):
+                        if resume_json and not hasattr(
+                            st.session_state, "stored_resume_json"
+                        ):
                             st.session_state.stored_resume_json = resume_json
-                        
+
                         # If resume_json is empty but we have a stored version, use that
-                        if not resume_json and hasattr(st.session_state, 'stored_resume_json'):
+                        if not resume_json and hasattr(
+                            st.session_state, "stored_resume_json"
+                        ):
                             resume_json = st.session_state.stored_resume_json
                             logging.info("Using stored resume_json from session state")
-                        
-                        # Log the current state for debugging
-                        logging.info(f"Resume JSON data: {json.dumps(resume_json, indent=2)}")
 
                         # Create columns for PDF and DOCX download buttons
                         pdf_col, docx_col = st.columns(2)

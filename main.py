@@ -8,7 +8,7 @@ import pymupdf  # Changed from fitz to pymupdf
 import tempfile  # Add this import
 import tempfile  # Add this import
 import docx2txt  # Add this import for DOCX support
-import subprocess 
+import subprocess
 
 app = FastAPI()
 
@@ -104,9 +104,10 @@ async def rebuild_resume(
                         try:
                             # Fallback to textract if available
                             import textract
-                            old_resume_content = textract.process(
-                                temp_path
-                            ).decode("utf-8", errors="replace")
+
+                            old_resume_content = textract.process(temp_path).decode(
+                                "utf-8", errors="replace"
+                            )
                         except ImportError:
                             old_resume_content = "Error: Could not process DOC file. Please install antiword or textract."
 
@@ -176,7 +177,8 @@ Then, create a professional resume that STRONGLY MATCHES the job requirements an
 Format the resume as follows:
 
 [Full Name]
-[Role]
+[Role](Sometimes you generate like that "Senior Software Engineer - Mapping & Localization", But this is not correct. you don't need to add any explanation after role)
+
 [Address]
 [Email] | [Phone] | [LinkedIn]
 
@@ -193,14 +195,13 @@ For example:
 Prioritize skills mentioned in the job description and valuable to the companies' industries and sizes]
 
 Experience:
-[List relevant work experience, tailoring descriptions to match job requirements and company backgrounds. Each bullet point should be detailed and substantial (30-35 words each), describing specific achievements with metrics where possible. For example: "Implemented a secure authentication system with Node.js and OAuth 2.0, achieving HIPAA compliance and reducing account-related support inquiries by 25%."]
+[List relevant work experience, tailoring descriptions to match job requirements and company backgrounds. When you generate experience, it needs to contain 9 or 10 bullets per each company. Each bullet point should be detailed and substantial (30-35 words each), describing specific achievements with metrics where possible. For example: "Implemented a secure authentication system with Node.js and OAuth 2.0, achieving HIPAA compliance and reducing account-related support inquiries by 25%."]
 
 Education:
 [List education details including universities and degrees]
 
 
 Focus HEAVILY on relevant experience and skills that match the job description and align with the backgrounds of all companies. For each bullet point in the experience section, ensure it demonstrates a skill or achievement that is valuable for the target position. Highlight versatility and adaptability to different company sizes and industries.
-When you generate experience, it needs to contain 7 or 8 bullets per each company.
 When you generate experience, you need to update user's role at each company based on generated experience(user's role is limited to senior level, not lead level).
 
 If the extracted info does not contain Linkedin or Phone, then you don't need to generate them. Just only use contact info from extracted info.
@@ -222,15 +223,18 @@ Additionally, after creating the resume, please also provide the same informatio
 - experience: An array of work experiences, where each experience contains:
   - company: Company name
   - location: Location of the company
-  - role: Job title/role at the company
+  - role: Job title/role at the company (Should show career progression, starting from junior positions and advancing to more senior roles. For example: 1."Fullstack Engineer" → "Senior FullStack Engineer" → "Senior Fullstack Engineer" 2. "Frontend Engineer" → "FullStack Engineer" → "Senior Fullstack Engineer")
   - period: Employment period (e.g., "2020 - Present")
   - responsibilities: An array of bullet points describing achievements and responsibilities
+    (These MUST be EXACTLY the same bullet points that appear in the resume text. Each bullet point should be detailed and substantial (30-35 words each), describing specific achievements with metrics where possible.)
 - education: An array of education details, where each entry contains:
+  - location: Location of the institution (optional)
   - institution: Name of the educational institution
   - degree: Degree obtained
   - field: Field of study
   - yearStart: Start year (optional)
   - yearEnd: Graduation year
+  - gpa: GPA if available (optional)
 
 Please provide both the formatted resume text AND the JSON structure.
 """
@@ -246,49 +250,61 @@ Please provide both the formatted resume text AND the JSON structure.
             messages=[{"role": "user", "content": prompt}],
         )
 
-                # Extract resume content from response
+        # Extract resume content from response
         resume_content = message.content[0].text
-        
+
         # Try to extract JSON from the response
         json_data = {}
         try:
             # Look for JSON block in the response
             import re
-            
+
             # First try to find JSON in a code block
-            json_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', resume_content, re.DOTALL)
+            json_match = re.search(
+                r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", resume_content, re.DOTALL
+            )
             if json_match:
                 json_text = json_match.group(1)
                 json_data = json.loads(json_text)
                 # Remove the JSON block from the resume content
-                resume_content = re.sub(r'```(?:json)?\s*\{[\s\S]*?\}\s*```', '', resume_content, flags=re.DOTALL).strip()
+                resume_content = re.sub(
+                    r"```(?:json)?\s*\{[\s\S]*?\}\s*```",
+                    "",
+                    resume_content,
+                    flags=re.DOTALL,
+                ).strip()
             else:
                 # Try to find a standalone JSON object (looking for a complete JSON structure with education field)
-                json_match = re.search(r'(\{[\s\S]*?"education"\s*:\s*\[[\s\S]*?\]\s*\})', resume_content, re.DOTALL)
+                json_match = re.search(
+                    r'(\{[\s\S]*?"education"\s*:\s*\[[\s\S]*?\]\s*\})',
+                    resume_content,
+                    re.DOTALL,
+                )
                 if json_match:
                     json_text = json_match.group(1)
                     try:
                         json_data = json.loads(json_text)
                         # Remove the JSON object from the resume content
-                        resume_content = resume_content.replace(json_text, '').strip()
+                        resume_content = resume_content.replace(json_text, "").strip()
                     except json.JSONDecodeError:
                         # If direct parsing fails, try to clean the text
-                        cleaned_json = re.sub(r'[\n\r\t]+', ' ', json_text)
+                        cleaned_json = re.sub(r"[\n\r\t]+", " ", json_text)
                         json_data = json.loads(cleaned_json)
-                        resume_content = resume_content.replace(json_text, '').strip()
+                        resume_content = resume_content.replace(json_text, "").strip()
         except Exception as json_error:
             print(f"Error parsing JSON from response: {json_error}")
-            
+
         # Clean up any remaining JSON-like content or markdown artifacts
-        resume_content = re.sub(r'^\s*\{[\s\S]*\}\s*$', '', resume_content, flags=re.MULTILINE).strip()
-        resume_content = re.sub(r'^\s*```.*?```\s*$', '', resume_content, flags=re.MULTILINE|re.DOTALL).strip()
-        
+        resume_content = re.sub(
+            r"^\s*\{[\s\S]*\}\s*$", "", resume_content, flags=re.MULTILINE
+        ).strip()
+        resume_content = re.sub(
+            r"^\s*```.*?```\s*$", "", resume_content, flags=re.MULTILINE | re.DOTALL
+        ).strip()
+
         # Return both the cleaned resume content and JSON data
-        return {
-            "resumeContent": resume_content,
-            "resumeJson": json_data
-        }
-            
+        return {"resumeContent": resume_content, "resumeJson": json_data}
+
     except Exception as e:
         return {"error": f"An error occurred during resume rebuilding: {str(e)}"}, 500
 
