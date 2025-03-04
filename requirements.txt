@@ -1,0 +1,18 @@
+# FastAPI backend dependencies
+fastapi
+uvicorn
+pydantic
+anthropic
+pymupdf
+python-multipart
+docx2txt
+
+# Streamlit frontend dependencies
+streamlit
+requests
+
+# Adobe PDF Services SDK
+adobe-pdfservices-sdk
+
+# Optional document processing libraries
+textract  # Optional fallback for DOC files
